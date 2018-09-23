@@ -15,6 +15,7 @@ PORT = 3306
 # 日志地址
 LOG_PATH = '/data/log/'
 
+COOKIES = {"Cookie": ""}
 
 LOGIN_URL_COM = "https://weibo.com"
 
@@ -30,5 +31,6 @@ TOPIC_FILE_NAME = DATA_DIR + 'weibo/all_topics.txt'
 TOPIC_KEYWORD = "九寨沟地震"
 # 关键词提取最大页
 TOPIC_MAX_PAGE = 23
-
+# 微博话题excel文件保存路径
+TOPIC_EXCEL = DATA_DIR + 'excel/'
 
