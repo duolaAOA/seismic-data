@@ -3,6 +3,7 @@
 
 import os
 import re
+import json
 import random
 from lxml import etree
 from time import sleep
@@ -13,7 +14,7 @@ import requests
 import dateparser
 from sina_com.task.crawler import Crawler
 from sina_com.utils.logger import Logger
-from sina_com.utils import settings
+from sina_com.utils import lib, settings
 from sina_com.utils.user_agents import agents
 
 
@@ -50,48 +51,16 @@ class CrawlDetailTopic(Crawler):
 
         yield from topic_lst
 
-    def get_detail_topic(self):
+    def parse_detail_topic_content(self):
         """
-        获取话题详情
+        解析topic页面
         """
-        # 昵称
-        nickname = ''
-        # 性别
-        # W_icon icon_pf_male  男
-        # W_icon icon_pf_female  女
-        gender = ''
-        # 签名
-        signature = ''
-        # 认证
-        user_auth = ''
-        # 用户微博地址
-        user_weibo_href = ''
-        # 关注数
-        followers = 0
-        # 粉丝数
-        fans = 0
-        # 地址
-        address = ''
-        # 微博数
-        weibo_num = 0
-        # 用户发布内容
-        content = ''
-        # 发送日期
-        create_time = ''
-        # 发送设备
-        device = ''
-        # 点赞数
-        praise_num = ''
-        # 评论数
-        comment_num = ''
-        # 转发数
-        transmit_num = ''
 
 
         log.info("开始获取每个话题详情！")
         for topic in self.read_local_topics():
             is_crawled = False
-            is_crawled = self.__class__.crawl_record(topic, is_crawled)
+            is_crawled = self.__class__.crawl_record(topic.strip(), is_crawled)
             if is_crawled:
                 log.warning("当前话题【{}】已经下载过!!!".format(topic))
                 continue
@@ -103,9 +72,184 @@ class CrawlDetailTopic(Crawler):
                     headers=self.headers,
                     cookies=self.cookie)
                 html.encoding = 'utf-8'
-                resp = html.text
+
+                selector = etree.HTML(
+                    bytes(bytearray(html.text, encoding='utf-8')))
+                all_weibo_speech = selector.xpath('//div[@action-type="feed_list_item"]')
+                yield from all_weibo_speech
+
+    def get_topic_detail(self):
+        """
+        获取话题详情数据
+        """
+        # 昵称
+        nickname = []
+        # 认证
+        user_auth = []
+        # 用户发布内容
+        content = []
+        # 发送日期
+        create_time = []
+        # 发送设备
+        device = []
+        # 转发数
+        transmit_num = []
+        # 评论数
+        comment_num = []
+        # 点赞数
+        praise_num = []
+        # 用户微博地址
+        user_weibo_href = []
+
+        for speech in self.parse_detail_topic_content():
+            nickname.extend(list(
+                speech.xpath('//div[@class="card-feed"]//div[@class="content"]/div[@class="info"]/div[2]/a/@nick-name')))
+            tmp_user_auth = speech.xpath('//div[@class="card-feed"]//div[@class="content"]/div[@class="info"]/div[2]')
+            for i in tmp_user_auth:
+                t = i.xpath('./a[2]/@title')
+                if t:
+                    user_auth.append(t[0])
+                else:
+                    user_auth.append('')
+
+            content_lst = speech.xpath('//div[@class="card"]//div[@class="content"]/p[@node-type="feed_list_content"]')
+            for i in content_lst:
+                content.append(i.xpath('string(.)').strip())
+
+            tmp_create_time = speech.xpath('//div[@class="card-feed"]//div[@class="content"]')
+            for i in tmp_create_time:
+                t = i.xpath('./p[last()]/a[1]/text()')
+                if t:
+                    create_time.append(t[0])
+                else:
+                    create_time.append('')
+
+            tmp_device = speech.xpath('//div[@class="card-feed"]//div[@class="content"]')
+            for i in tmp_device:
+                t = i.xpath('./p[last()]/a[2]/text()')
+                if t:
+                    device.append(t[0])
+                else:
+                    device.append('')
+
+            tmp_collections = speech.xpath('//div[@class="card"]/div[@class="card-act"]/ul')
+            for i in tmp_collections:
+                t = i.xpath('./li[2]/a/text()')
+                if t:
+                    transmit_num.append(t[0])
+                else:
+                    transmit_num.append(0)
+
+            for i in tmp_collections:
+                t = i.xpath('./li[3]/a/text()')
+                if t:
+                    comment_num.append(t[0])
+                else:
+                    comment_num.append(0)
+
+            for i in tmp_collections:
+                t = i.xpath('./li[4]/a/em/text()')
+                if t:
+                    praise_num.append(t[0])
+                else:
+                    praise_num.append(0)
+
+            user_weibo_href.extend(list(speech.xpath(
+                '//div[@class="card"]//div[@class="content"]/div[@class="info"]/div[2]/a[@class="name"]/@href')))
+
+            gender, signature, followers, fans, weibo_num = self.get_user_info(user_weibo_href)
+
+            pass
+
+    def get_user_info(self, user_info_url_lst):
+        """
+        获取用户详细信息
+
+        """
+        # 性别
+        # W_icon icon_pf_male  男
+        # W_icon icon_pf_female  女
+        gender_lst = []
+        # 签名
+        signature_lst = []
+        # 关注数
+        followers_lst = []
+        # 粉丝数
+        fans_lst = []
+        # 微博数
+        weibo_num_lst = []
+
+        for url in user_info_url_lst:
+            self.headers["user-agent"] = random.choice(agents)
+            html = self.session.get(
+                url="https:" + url,
+                headers=self.headers,
+                cookies=self.cookie)
+
+            pattern = re.compile(r'<script>FM\.view\((.*)\).*?</script>')
+            html.encoding = 'utf-8'
+            response = pattern.findall(html.text)
+            if response:
+                for i in range(len(response)):
+                    strContent = response[i]
+
+                    if '"Pl_Official_Headerv6__1"' in strContent:
+                        decodejson = json.loads(strContent)
+                        htmlDoc = decodejson["html"]
+
+                        selector = etree.fromstring(htmlDoc, etree.HTMLParser(encoding='utf-8'))
+
+                        try:
+                            gender = selector.xpath(
+                                '//span[@class="icon_bed"]/a/i/@class')[0]
+                            if gender == 'W_icon icon_pf_male':
+                                gender = 'male'
+                            else:
+                                gender = "female"
+                        except:
+                            gender = 'female'
+
+                        try:
+                            signature = selector.xpath(
+                                '//div[@class="pf_intro"]/text()')[0].strip()
+                        except:
+                            signature = ''
+
+                        gender_lst.append(gender)
+                        signature_lst.append(signature)
+
+                    if '"Pl_Core_T8CustomTriColumn__3"' in strContent:
+                        decodejson = json.loads(strContent)
+                        htmlDoc = decodejson["html"]
+
+                        selector = etree.HTML(
+                            bytes(bytearray(htmlDoc, encoding='utf-8')))
+
+                        try:
+                            followers = selector.xpath(
+                                '//table[@class="tb_counter"]/tbody/tr/td[1]/strong/text()')
+                            followers = followers[0]
+                        except:
+                            followers = 0
+                        try:
+                            fans = selector.xpath(
+                                '//table[@class="tb_counter"]/tbody/tr/td[2]/strong/text()')
+                            fans = fans[0]
+                        except:
+                            fans = 0
+                        try:
+                            weibo_num = selector.xpath(
+                                '//table[@class="tb_counter"]/tbody/tr/td[3]/strong/text()')
+                            weibo_num = weibo_num[0]
+                        except:
+                            weibo_num = 0
+
+                        followers_lst.append(followers)
+                        fans_lst.append(fans)
+                        weibo_num_lst.append(weibo_num)
 
 
+        return gender_lst, signature_lst, followers_lst, fans_lst, weibo_num_lst
 
     @classmethod
     def crawl_record(cls, topic, is_crawled):
@@ -136,4 +280,4 @@ class CrawlDetailTopic(Crawler):
 
 if __name__ == "__main__":
     crawl = CrawlDetailTopic()
-    crawl.get_detail_topic()
+    crawl.get_topic_detail()
