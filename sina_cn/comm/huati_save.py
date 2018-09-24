@@ -1,15 +1,14 @@
-#!/usr/bin/env python3
-# encoding=utf-8
+# -*-coding:utf-8-*-
+
 
 import pymysql
 import datetime
-from .logger import Logger
-from . import settings
+from logger import Logger
+from comm import settings
 
 
 log_name = "huati_save"
-log_path = '/data/weibo_com_log/'
-log = Logger.init_logger(log_name, log_path)
+log = Logger.init_logger(log_name)
 
 
 class get_Mysql(object):
