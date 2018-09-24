@@ -13,8 +13,7 @@ class Config(object):
     """settings 参数配置"""
 
     def __init__(self):
-        self.db_name = settings.DB_NAME
-        self.table_name = settings.TABLE_NAME
+
         self.topic_base_url = settings.TOPIC_BASE_URL
         self.topic_detail_url = settings.TOPIC_DETAIL_URL
         self.topic_keyword = settings.TOPIC_KEYWORD
