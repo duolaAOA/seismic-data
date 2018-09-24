@@ -13,4 +13,4 @@ def extract_digit(extract_task):
     d = re.search("\d+", extract_task)
     if d:
         return d.group()
-    return 0
+    return '0'

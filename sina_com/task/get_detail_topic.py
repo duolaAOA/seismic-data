@@ -8,10 +8,8 @@ import random
 from lxml import etree
 from time import sleep
 from urllib import parse
-from datetime import datetime
+from requests.exceptions import ProxyError
 
-import requests
-import dateparser
 from sina_com.task.crawler import Crawler
 from sina_com.utils.logger import Logger
 from sina_com.utils import lib, settings
@@ -26,6 +24,8 @@ log = Logger.init_logger(log_name, log_path)
 download_topic_bak = settings.DATA_DIR + "download_topic_record.txt"
 # 话题文件存储路径
 download_topic_path = settings.DATA_DIR + "topic_files/"
+# 话题关键词
+global keyword
 
 class CrawlDetailTopic(Crawler):
     """
@@ -33,11 +33,11 @@ class CrawlDetailTopic(Crawler):
     """
     crawl_record_read_finish = False
     crawl_pool = []
-    start_page = 1
 
     def __init__(self):
         super(CrawlDetailTopic, self).__init__()
         self.count = 0
+        self.next_page_pool = []
 
     def read_local_topics(self):
         """
@@ -56,9 +56,10 @@ class CrawlDetailTopic(Crawler):
         解析topic页面
         """
 
-
         log.info("开始获取每个话题详情！")
         for topic in self.read_local_topics():
+            global keyword
+            keyword = topic
             is_crawled = False
             is_crawled = self.__class__.crawl_record(topic.strip(), is_crawled)
             if is_crawled:
@@ -67,16 +68,34 @@ class CrawlDetailTopic(Crawler):
             else:
                 log.info("话题【{}】开始处理!".format(topic))
                 self.headers["user-agent"] = random.choice(agents)
-                html = self.session.get(
-                    url=(self.topic_detail_url+'weibo/{keyword}&page={page}').format(keyword=parse.quote(topic.strip()), page=self.__class__.start_page),
-                    headers=self.headers,
-                    cookies=self.cookie)
-                html.encoding = 'utf-8'
+                self.next_page_pool.append(self.topic_detail_url.format(
+                    keyword=parse.quote(topic.strip())))
 
-                selector = etree.HTML(
-                    bytes(bytearray(html.text, encoding='utf-8')))
-                all_weibo_speech = selector.xpath('//div[@action-type="feed_list_item"]')
-                yield from all_weibo_speech
+                while self.next_page_pool is not None:
+
+                    try:
+                        html = self.session.get(
+                            url=self.next_page_pool.pop(),
+                            headers=self.headers,
+                            cookies=self.cookie)
+                    except ProxyError:
+                        sleep(10)
+                        log.error("话题【{}】处理失败,开始处理下一话题!!!")
+                        continue
+
+                    html.encoding = 'utf-8'
+
+                    selector = etree.HTML(
+                        bytes(bytearray(html.text, encoding='utf-8')))
+
+                    next_page = selector.xpath('//*[@id="pl_feedlist_index"]/div[2]/div/a[@class="next"]/@href')
+                    if next_page is not None:
+                        self.next_page_pool.append("https:" + next_page[0])
+                    else:
+                        self.next_page_pool.clear()
+
+                    all_weibo_speech = selector.xpath('//div[@action-type="feed_list_item"]')
+                    yield from all_weibo_speech
 
     def get_topic_detail(self):
         """
@@ -139,6 +158,7 @@ class CrawlDetailTopic(Crawler):
                     transmit_num.append(t[0])
                 else:
                     transmit_num.append(0)
+            transmit_num = list(map(lib.extract_digit, transmit_num))
 
             for i in tmp_collections:
                 t = i.xpath('./li[3]/a/text()')
@@ -146,6 +166,7 @@ class CrawlDetailTopic(Crawler):
                     comment_num.append(t[0])
                 else:
                     comment_num.append(0)
+            comment_num = list(map(lib.extract_digit, comment_num))
 
             for i in tmp_collections:
                 t = i.xpath('./li[4]/a/em/text()')
@@ -159,7 +180,12 @@ class CrawlDetailTopic(Crawler):
 
             gender, signature, followers, fans, weibo_num = self.get_user_info(user_weibo_href)
 
-            pass
+            data = [nickname, user_auth, content, create_time, device, transmit_num,
+                    comment_num, praise_num, user_weibo_href, gender, signature, followers, fans, weibo_num]
+            global keyword
+            filename = keyword.replace("#","").strip()
+            yield data, filename
+
 
     def get_user_info(self, user_info_url_lst):
         """
@@ -181,10 +207,14 @@ class CrawlDetailTopic(Crawler):
 
         for url in user_info_url_lst:
             self.headers["user-agent"] = random.choice(agents)
-            html = self.session.get(
-                url="https:" + url,
-                headers=self.headers,
-                cookies=self.cookie)
+            try:
+                html = self.session.get(
+                    url="https:" + url,
+                    headers=self.headers,
+                    cookies=self.cookie)
+            except ProxyError:
+                sleep(10)
+                continue
 
             pattern = re.compile(r'<script>FM\.view\((.*)\).*?</script>')
             html.encoding = 'utf-8'
