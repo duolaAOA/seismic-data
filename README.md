@@ -1,1 +1,2 @@
-# seismic-data
+#### linux
+#### python3.6
