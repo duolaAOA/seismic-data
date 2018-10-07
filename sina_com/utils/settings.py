@@ -1,5 +1,6 @@
 # -*-coding:utf-8 -*-
 
+
 # 日志地址
 LOG_PATH = '/data/log/'
 
